@@ -5,6 +5,7 @@ It's your function style note taking application that you can call from your com
 1. Roughed this out with AI assistance
 2. Intended to run on Linux - as yet untested
 3. Probably will be best with a symlink to /usr/local/bin
+4. Switched from python to C - I'd like to say it's for speed, but then I wouldn't be using json libraries if that were true
 
 # For development
 1. Create a nifty search function
