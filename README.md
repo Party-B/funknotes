@@ -13,29 +13,38 @@ It's your function style note taking application that you can call from your com
 
 # Example of potential use
 // Create a new project
+
 funknotes new Cafe_GUI
 
 // Set it as primary
+
 funknotes primary Cafe_GUI
 
 // Create a TODO object
+
 funknotes object TODO
 
 // Add items
+
 funknotes add TODO "Implement JSON for buttons"
 funknotes add TODO "Design main menu layout"
 
 // Show all objects in current project
+
 funknotes show
 
 // Show items in an object
+
 funknotes show TODO
 
 // View history
+
 funknotes history TODO
 
 // List all projects
+
 funknotes list
 
-# Switch projects
+// Switch projects
+
 funknotes primary 2
