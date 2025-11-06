@@ -23,11 +23,39 @@ typedef struct {
     char projects_dir[MAX_PATH];
 } Config;
 
+/* =================
+ * === UTILITY =====
+ * =================  */
+
 /* Get timestamp string */
 void get_timestamp(char *buf, size_t size) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     strftime(buf, size, "%Y-%m-%d %H:%M:%S", t);
+}
+
+/* Read from stdin if available */
+char* read_stdin() {
+    if (isatty(STDIN_FILENO)) {
+        return NULL;  // stdin is a terminal, not a pipe
+    }
+
+    char *buffer = malloc(MAX_TEXT);
+    if (!buffer) return NULL;
+
+    size_t len = 0;
+    int c;
+    while ((c = getchar()) != EOF && len < MAX_TEXT - 1) {
+        buffer[len++] = c;
+    }
+    buffer[len] = '\0';
+
+    // Trim trailing newline
+    if (len > 0 && buffer[len-1] == '\n') {
+        buffer[len-1] = '\0';
+    }
+
+    return buffer;
 }
 
 /* Initialize configuration paths */
@@ -498,6 +526,7 @@ void show_usage(const char *prog) {
     printf("  %s object <name>           Create a new object\n", prog);
     printf("  %s add <object> <text>     Add item to an object\n", prog);
     printf("  %s list                    List all projects\n", prog);
+    printf("  %s show                    Show objects in primary\n", prog);
 }
 
 int main(int argc, char *argv[]) {
@@ -525,16 +554,31 @@ int main(int argc, char *argv[]) {
             show(&cfg, argv[2]);  // Show specific object's items
         }
     }
-    else if (strcmp(argv[1], "add") == 0 && argc >= 4) {
-        char text[MAX_TEXT] = "";
-        for (int i = 3; i < argc; i++) {
-            strcat(text, argv[i]);
-            if (i < argc - 1) strcat(text, " ");
+    else if (strcmp(argv[1], "add") == 0 && argc >= 3) {
+        char *text = read_stdin();
+    
+        if (text) {
+            // Text from stdin
+            add_item(&cfg, argv[2], text);
+            free(text);
         }
-        add_item(&cfg, argv[2], text);
+        else if (argc >= 4) {
+            // Text from arguments
+            char text_buf[MAX_TEXT] = "";
+            for (int i = 3; i < argc; i++) {
+                strcat(text_buf, argv[i]);
+                if (i < argc - 1) strcat(text_buf, " ");
+            }
+            add_item(&cfg, argv[2], text_buf);
     }
-    else if (strcmp(argv[1], "list") == 0) {
+    else {
+        printf("Usage: funknotes add <object> <text> OR echo \"text\" | funknotes add <object>\n");
+    }
+}    else if (strcmp(argv[1], "list") == 0) {
         list_projects(&cfg);
+    }
+    else if (strcmp(argv[1], "help") == 0) {
+        show_usage(argv[0]);
     }
     else {
         show_usage(argv[0]);
