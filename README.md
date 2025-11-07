@@ -1,54 +1,102 @@
 # funknotes
-It's your function style note taking application that you can call from your command line.
+FunkNotes is a tiny command-line note-taking tool written in C. It stores data as JSON files under
+`$HOME/.funknotes/projects/` and keeps a small `config.json` for the primary project and a project counter. FunkNotes (From the idea of function based notes - originally I made this in vba as class oriented notes so you could do funk.new(proj) etc).
 
-# Notes
-1. Roughed this out with AI assistance
-2. Intended to run on Linux - as yet untested
-3. Probably will be best with a symlink to /usr/local/bin
-4. Switched from python to C - I'd like to say it's for speed, but then I wouldn't be using json libraries if that were true. I kept a python branch of the early design if anyone wants to pursue that.
+Funknotes is project-centric - that is, the application is developed with the idea that you'll mainly be working in one project, not switching between a heap. This means a lot of the efficiency I was aiming for is to make dealing with your one project quick. All parts of the project are generic "Objects" so you can name them however you like - some examples, BUGS, TODOS, PLANS etc.
 
-# Latest changes
-2025/11/06 - Added the show function, included piping: echo "A useful line" | funknotes add TODO
+This README summarizes current features, recent changes, and common commands.
 
-# For development
-1. Create a nifty search function
-2. I'd like to somehow add a "tic" to directories to indicate a funknote - for example, if I'm in my main dev folder for XYZ Project, when I create the funknote for it, I get an option to "drop nit" - the nit is a tiny file that sits in the dev folder, if for whatever reason, I move that folder around and my main funknotes tracker loses where it is, I can do a "comb.nits" - funknotes will search for nit files and check for the match and re-link the directory
-3. At some point, I'll check how this interacts with nvim/vim - I definitely want this to work from the vim : mode
+Notes
+- Initial prototype was produced with AI-assisted iterative development.
+- Intended to run on Unix-like systems (macOS, Linux). Build requires libjson-c.
+- You may want to symlink the compiled binary into `/usr/local/bin` for convenience.
 
-# Example of potential use
-// Create a new project
+Latest changes (2025/11/07)
+- Added safe deletion features:
+	- `funknotes delete object <name>` now prompts before deleting an object from the primary project.
+	- `funknotes delete <object> <index>` deletes a single 1-based item from an object (interactive confirmation).
+	- `funknotes delete <object> <indexes>` accepts comma-separated indexes and ranges (e.g. `2,4,6-8`) to delete multiple items in one operation; prompts once before applying changes and records history entries for each deleted item.
+	- `funknotes delete project <name|index>` and `funknotes delete projects <a,b,c>` allow deleting projects (by name or index); primary is unset if deleted.
+- Auto-create objects on add: `funknotes add <object> <text>` will create the object if it doesn't exist; in interactive shells it prompts "The object '<name>' does not exist, create it? Y/n" (default: yes).
+- `show` improvements: `funknotes show` lists objects in the primary project; `funknotes show <project>` accepts project name or index and lists that project's objects; `funknotes show <project> <object>` shows items in a specific object in any project.
+- Projects listing: `projects` command (renamed from `list`) lists all projects with their index and primary marker.
+- Merge utilities:
+	- `funknotes merge projects <proj1,proj2,...,target>` — merge multiple projects into the target (last) project; prompts and optionally deletes sources after merge.
+	- `funknotes merge <project> <obj1,obj2,target>` — merge objects within a single project.
+- Search: added a case-insensitive substring search that accepts multiple keywords (AND semantics) and can be scoped to an object: `funknotes search [<object>] <keywords...>`.
 
+Quick build
+You need gcc and libjson-c development headers installed. Example on macOS (Homebrew):
+
+```bash
+brew install json-c
+gcc -o funknotes funknotes.c -ljson-c
+```
+
+Commands / Usage (high level)
+
+- Create a new project
+	- funknotes new <name>
+- Set primary project (by name or index)
+	- funknotes primary <name|index>
+- Create an object in the primary project
+	- funknotes object <name>
+- Add an item to an object
+	- funknotes add <object> <text>
+	- or: echo "text" | funknotes add <object>
+	- If the object doesn't exist you'll be prompted to create it (interactive shells).
+- List projects
+	- funknotes projects
+- Show objects / items
+	- funknotes show                # list objects in primary
+	- funknotes show <project>      # list objects in named/indexed project
+	- funknotes show <project> <object>  # show items in that object
+- Search notes
+	- funknotes search [<object>] <keywords...>
+		- Case-insensitive, all keywords must be present (AND)
+- Merge projects
+	- funknotes merge projects <proj1,proj2,...,target>
+	- Prompted; combines objects/items/history into target
+- Merge objects within a project
+	- funknotes merge <project> <obj1,obj2,target>
+- Delete
+	- funknotes delete project <name|index>
+	- funknotes delete projects <proj1,proj2,...>
+	- funknotes delete object <name>             # deletes whole object (prompts)
+	- funknotes delete <object> <index>          # deletes one 1-based item from object
+	- funknotes delete <object> <indexes>        # deletes multiple items (e.g. 1,3,5-7)
+
+Notes on behavior and safety
+- All interactive delete operations prompt for confirmation. In non-interactive contexts (scripts, piped stdin) the tool refuses to delete by default to avoid accidental data loss. If you want a non-interactive forced delete behavior, I can add a `-y/--yes` flag later.
+- Each object maintains an `items` array and a `history` array; deletions append `DELETE_ITEM` entries to history with timestamps and text for auditability.
+
+Development ideas / TODO
+- Add optional `-y/--yes` for scripted deletes.
+- Add richer matching delete (delete by substring or regex).
+- Add unit/smoke tests that create temporary projects and verify behavior automatically.
+- Implement the "nit" file linking idea for locating moved project folders.
+
+Examples
+
+```bash
+# create and set project
 funknotes new Cafe_GUI
-
-// Set it as primary
-
 funknotes primary Cafe_GUI
 
-// Create a TODO object
-
-funknotes object TODO
-
-// Add items
-
+# add and auto-create object
 funknotes add TODO "Implement JSON for buttons"
-funknotes add TODO "Design main menu layout"
 
-// Show all objects in current project
-
+# show objects
 funknotes show
 
-// Show items in an object
+# delete the 4th item in TODO
+funknotes delete TODO 4
 
-funknotes show TODO
+# delete multiple items
+funknotes delete TODO 2,4,6-8
 
-// View history
+# merge projects into a target (last is target)
+funknotes merge projects alpha,beta,gamma
+```
 
-funknotes history TODO
-
-// List all projects
-
-funknotes list
-
-// Switch projects
-
-funknotes primary 2
+License: see LICENSE
