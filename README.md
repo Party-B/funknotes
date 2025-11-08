@@ -11,6 +11,18 @@ Notes
 - Intended to run on Unix-like systems (macOS, Linux). Build requires libjson-c.
 - You may want to symlink the compiled binary into `/usr/local/bin` for convenience.
 
+Latest changes (2025/11/08)
+Shell & Interactive Modes
+- `funknotes shell` enters a REPL where you can run funknotes commands interactively. Exit with `q`, `quit`, `exit`, `drop`, or Ctrl+C.
+- Object shell mode: `funknotes add <object>`, `funknotes new <object>`, or `funknotes open <object>` (with no text argument) enters an interactive shell for that object, allowing you to add items line by line. Exit with `q`, `quit`, `exit`, or `drop`.
+	- In object shell mode:
+		- Type `delete` to enter delete shell for that object (delete items by number/range interactively).
+		- Type `show` to refresh and display the object's items.
+		- Type `clear` to clear the terminal.
+		- All other input adds a new item to the object.
+	- In delete shell, enter a number or range (e.g. `3`, `2-5`) to delete items, or exit as above.
+
+
 Latest changes (2025/11/07)
 - Added safe deletion features:
 	- `funknotes delete object <name>` now prompts before deleting an object from the primary project.
@@ -33,6 +45,7 @@ brew install json-c
 gcc -o funknotes funknotes.c -ljson-c
 ```
 
+
 Commands / Usage (high level)
 
 - Create a new project
@@ -45,6 +58,12 @@ Commands / Usage (high level)
 	- funknotes add <object> <text>
 	- or: echo "text" | funknotes add <object>
 	- If the object doesn't exist you'll be prompted to create it (interactive shells).
+	- If you run `funknotes add <object>` (with no text), you enter object shell mode for that object.
+- Object shell mode
+	- funknotes add <object>
+	- funknotes new <object>
+	- funknotes open <object>
+	- In shell: type lines to add items, `delete` to enter delete shell, `show` to refresh, `clear` to clear, exit with `q`, `quit`, `exit`, or `drop`.
 - List projects
 	- funknotes projects
 - Show objects / items

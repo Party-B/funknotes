@@ -419,6 +419,13 @@ void delete_project(Config *cfg, const char *ident) {
 
     // Remove the file
     if (remove(project_file) == 0) {
+        printf("Delete project '%s' (index %d)? y/N: ", ident, proj_idx);
+        fflush(stdout);
+        char resp[8];
+        if (!fgets(resp, sizeof(resp), stdin) || (resp[0] != 'y' && resp[0] != 'Y')) {
+            printf("Deletion cancelled\n");
+            return;
+        }
         printf("Deleted project '%s' (index %d)\n", ident, proj_idx);
 
         // If deleted project was primary, unset primary
@@ -712,7 +719,6 @@ void delete_items_from_object(Config *cfg, const char *object_name, const char *
     }
 
     json_object_put(root);
-    free(indexes); free(mark);
 }
 
 /* Search items across objects (or within a single object when object_name != NULL)
@@ -1491,13 +1497,14 @@ void list_projects(Config *cfg) {
 void show_usage(const char *prog) {
     printf("FunkNotes - Git-like note taking\n\n");
     printf("Usage:\n");
-    printf("  %s new <name>              Create a new project\n", prog);
-    printf("  %s primary <name|index>     Set primary project by name or index\n", prog);
-    printf("  %s object <name>           Create a new object\n", prog);
-    printf("  %s add <object> <text>     Add item to an object\n", prog);
-    printf("  %s projects                List all projects\n", prog);
-    printf("  %s show                    Show objects in primary\n", prog);
-    printf("  %s show <project> <object>  Show items of an object in a specific project\n", prog);
+    printf("  %s shell                          Enter interactive shell mode (type funknotes commands, exit with 'q', 'quit', 'exit', 'drop', or Ctrl+C)\n", prog);
+    printf("  %s new project <name>             Create a new project\n", prog);
+    printf("  %s primary <name|index>           Set primary project by name or index\n", prog);
+    printf("  %s new <name>                     Create a new object\n", prog);
+    printf("  %s add <object> <text>            Add item to an object\n", prog);
+    printf("  %s projects                       List all projects\n", prog);
+    printf("  %s show                           Show objects in primary\n", prog);
+    printf("  %s show <project> <object>        Show items of an object in a specific project\n", prog);
     printf("  %s search [<object>] <keywords...>  Search notes (case-insensitive, all keywords must match)\n", prog);
     printf("  %s merge projects <proj1,proj2,...,target>   Merge multiple projects into target (last)\n", prog);
     printf("  %s merge <project> <obj1,obj2,target>  Merge objects within a project\n", prog);
@@ -1515,15 +1522,258 @@ int main(int argc, char *argv[]) {
         show_usage(argv[0]);
         return 1;
     }
-    
-    if (strcmp(argv[1], "new") == 0 && argc == 3) {
-        new_project(&cfg, argv[2]);
+
+    // === SHELL MODE ===
+    if (strcmp(argv[1], "shell") == 0) {
+        printf("FunkNotes Shell Mode. Type funknotes commands, exit with 'q', 'quit', 'exit', 'drop', or Ctrl+C.\n\n");
+        char line[2048];
+        while (1) {
+            printf("> ");
+            fflush(stdout);
+            if (!fgets(line, sizeof(line), stdin)) {
+                printf("\nExiting shell.\n");
+                break;
+            }
+            // Trim leading/trailing whitespace
+            char *cmd = line;
+            while (*cmd == ' ' || *cmd == '\t') cmd++;
+            size_t len = strlen(cmd);
+            while (len > 0 && (cmd[len-1] == '\n' || cmd[len-1] == ' ' || cmd[len-1] == '\t')) cmd[--len] = 0;
+            if (len == 0) continue;
+            if (!strcasecmp(cmd, "clear")) {
+                printf("\033[2J\033[H");
+                continue;
+            }
+            if (!strcasecmp(cmd, "q") || !strcasecmp(cmd, "quit") || !strcasecmp(cmd, "exit") || !strcasecmp(cmd, "drop")) {
+                printf("Exiting shell.\n");
+                break;
+            }
+            // Tokenize input into argv-like array
+            char *args[32]; int ac = 0;
+            char *tok = strtok(cmd, " ");
+            while (tok && ac < 31) { args[ac++] = tok; tok = strtok(NULL, " "); }
+            args[ac] = NULL;
+            if (ac == 0) continue;
+            // Recursively call main() with parsed args (skip shell)
+            // Build fake argv: argv[0] = "funknotes", argv[1..ac]
+            char *fake_argv[33];
+            fake_argv[0] = argv[0];
+            for (int i = 0; i < ac; i++) fake_argv[i+1] = args[i];
+            int ret = main(ac+1, fake_argv);
+            if (ret != 0) printf("(error code %d)\n", ret);
+        }
+        return 0;
+    }
+
+    // === OPEN OBJECT SHELL MODE ===
+    if (strcmp(argv[1], "open") == 0 && argc == 3) {
+        // Enter object shell mode for the specified object
+        int primary, counter;
+        load_config_data(&cfg, &primary, &counter);
+        if (primary < 0) {
+            printf("No primary project set. Use 'funknotes primary <project>' first.\n");
+            return 1;
+        }
+        char project_file[MAX_PATH];
+        if (!get_project_file(&cfg, primary, project_file)) {
+            printf("Primary project not found\n");
+            return 1;
+        }
+        FILE *f = fopen(project_file, "r");
+        if (!f) return 1;
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        char *content = malloc(size + 1);
+        fread(content, 1, size, f);
+        content[size] = '\0';
+        fclose(f);
+        struct json_object *root = json_tokener_parse(content);
+        free(content);
+        if (!root) return 1;
+        struct json_object *objects, *obj;
+        json_object_object_get_ex(root, "objects", &objects);
+        if (!json_object_object_get_ex(objects, argv[2], &obj)) {
+            printf("Object '%s' not found. Creating it...\n", argv[2]);
+            json_object_put(root);
+            add_object(&cfg, argv[2]);
+            // Re-load project file and objects
+            FILE *f2 = fopen(project_file, "r");
+            if (!f2) return 1;
+            fseek(f2, 0, SEEK_END);
+            long size2 = ftell(f2);
+            fseek(f2, 0, SEEK_SET);
+            char *content2 = malloc(size2 + 1);
+            fread(content2, 1, size2, f2);
+            content2[size2] = '\0';
+            fclose(f2);
+            struct json_object *root2 = json_tokener_parse(content2);
+            free(content2);
+            if (!root2) return 1;
+            json_object_object_get_ex(root2, "objects", &objects);
+            json_object_object_get_ex(objects, argv[2], &obj);
+            json_object_put(root2);
+        } else {
+            json_object_put(root);
+        }
+        // Show items in object
+        show(&cfg, argv[2]);
+        printf("\nEnter text to add to '%s'. Type 'q', 'quit', 'exit', or Ctrl+C to leave.\n", argv[2]);
+        char line[2048];
+        while (1) {
+            printf("%s> ", argv[2]);
+            fflush(stdout);
+            if (!fgets(line, sizeof(line), stdin)) {
+                printf("\nExiting object shell.\n");
+                break;
+            }
+            char *cmd = line;
+            while (*cmd == ' ' || *cmd == '\t') cmd++;
+            size_t len = strlen(cmd);
+            while (len > 0 && (cmd[len-1] == '\n' || cmd[len-1] == ' ' || cmd[len-1] == '\t')) cmd[--len] = 0;
+            if (len == 0) continue;
+            if (!strcasecmp(cmd, "clear")) {
+                printf("\033[2J\033[H");
+                continue;
+            }
+            if (!strcasecmp(cmd, "q") || !strcasecmp(cmd, "quit") || !strcasecmp(cmd, "exit") || !strcasecmp(cmd, "drop")) {
+                printf("Exiting object shell.\n");
+                break;
+            }
+            if (!strcasecmp(cmd, "show")) {
+                show(&cfg, argv[2]);
+                continue;
+            }
+            if (!strcasecmp(cmd, "delete")) {
+                // Enter object delete shell
+                printf("Entering delete mode for '%s'. Type a number or range to delete items, or 'q', 'quit', 'exit', 'drop' to leave.\n", argv[2]);
+                char dline[2048];
+                while (1) {
+                    printf("%s(delete)> ", argv[2]);
+                    fflush(stdout);
+                    if (!fgets(dline, sizeof(dline), stdin)) {
+                        printf("\nExiting object delete shell.\n");
+                        break;
+                    }
+                    char *dcmd = dline;
+                    while (*dcmd == ' ' || *dcmd == '\t') dcmd++;
+                    size_t dlen = strlen(dcmd);
+                    while (dlen > 0 && (dcmd[dlen-1] == '\n' || dcmd[dlen-1] == ' ' || dcmd[dlen-1] == '\t')) dcmd[--dlen] = 0;
+                    if (dlen == 0) continue;
+                    if (!strcasecmp(dcmd, "clear")) {
+                        printf("\033[2J\033[H");
+                        continue;
+                    }
+                    if (!strcasecmp(dcmd, "q") || !strcasecmp(dcmd, "quit") || !strcasecmp(dcmd, "exit") || !strcasecmp(dcmd, "drop")) {
+                        printf("Exiting object delete shell.\n");
+                        break;
+                    }
+                    if (strchr(dcmd, ',') || strchr(dcmd, '-')) {
+                        delete_items_from_object(&cfg, argv[2], dcmd);
+                    } else {
+                        int idx = atoi(dcmd);
+                        if (idx <= 0) {
+                            printf("Invalid item index '%s'\n", dcmd);
+                        } else {
+                            delete_item_from_object(&cfg, argv[2], idx);
+                        }
+                    }
+                }
+                continue;
+            }
+            add_item(&cfg, argv[2], cmd);
+        }
+        return 0;
+    }
+
+    // === END SHELL MODE ===
+    if (strcmp(argv[1], "new") == 0) {
+        if (argc == 3) {
+            // Create/show object in primary project
+            int primary, counter;
+            load_config_data(&cfg, &primary, &counter);
+            if (primary < 0) {
+                printf("No primary project set. Use 'funknotes primary <project>' first.\n");
+                return 1;
+            }
+            char project_file[MAX_PATH];
+            if (!get_project_file(&cfg, primary, project_file)) {
+                printf("Primary project not found\n");
+                return 1;
+            }
+            FILE *f = fopen(project_file, "r");
+            if (!f) return 1;
+            fseek(f, 0, SEEK_END);
+            long size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            char *content = malloc(size + 1);
+            fread(content, 1, size, f);
+            content[size] = '\0';
+            fclose(f);
+            struct json_object *root = json_tokener_parse(content);
+            free(content);
+            if (!root) return 1;
+            struct json_object *objects, *obj;
+            json_object_object_get_ex(root, "objects", &objects);
+            if (json_object_object_get_ex(objects, argv[2], &obj)) {
+                // Object exists, enter shell mode to add items
+                struct json_object *items;
+                json_object_object_get_ex(obj, "items", &items);
+                int item_count = json_object_array_length(items);
+                printf("\n=== %s ===\n", argv[2]);
+                for (int i = 0; i < item_count; i++) {
+                    struct json_object *item = json_object_array_get_idx(items, i);
+                    struct json_object *timestamp, *text;
+                    json_object_object_get_ex(item, "timestamp", &timestamp);
+                    json_object_object_get_ex(item, "text", &text);
+                    printf("%d. [%s] %s\n", i + 1,
+                           json_object_get_string(timestamp),
+                           json_object_get_string(text));
+                }
+                json_object_put(root);
+                printf("\nEnter text to add to '%s'. Type 'q', 'quit', 'exit', or Ctrl+C to leave.\n", argv[2]);
+                char line[2048];
+                while (1) {
+                    printf("%s> ", argv[2]);
+                    fflush(stdout);
+                    if (!fgets(line, sizeof(line), stdin)) {
+                        printf("\nExiting object shell.\n");
+                        break;
+                    }
+                    // Trim leading/trailing whitespace
+                    char *cmd = line;
+                    while (*cmd == ' ' || *cmd == '\t') cmd++;
+                    size_t len = strlen(cmd);
+                    while (len > 0 && (cmd[len-1] == '\n' || cmd[len-1] == ' ' || cmd[len-1] == '\t')) cmd[--len] = 0;
+                    if (len == 0) continue;
+                    if (!strcasecmp(cmd, "clear")) {
+                        printf("\033[2J\033[H");
+                        continue;
+                    }
+                    if (!strcasecmp(cmd, "q") || !strcasecmp(cmd, "quit") || !strcasecmp(cmd, "exit") || !strcasecmp(cmd, "drop")) {
+                        printf("Exiting object shell.\n");
+                        break;
+                    }
+                    // Add item to object
+                    add_item(&cfg, argv[2], cmd);
+                }
+                return 0;
+            } else {
+                // Object does not exist, create it
+                json_object_put(root);
+                add_object(&cfg, argv[2]);
+                return 0;
+            }
+        } else if (argc == 4 && strcmp(argv[2], "project") == 0) {
+            new_project(&cfg, argv[3]);
+            return 0;
+        } else {
+            printf("Usage: funknotes new <object> OR funknotes new project <name>\n");
+            return 1;
+        }
     }
     else if (strcmp(argv[1], "primary") == 0 && argc == 3) {
         set_primary(&cfg, argv[2]);
-    }
-    else if (strcmp(argv[1], "object") == 0 && argc == 3) {
-        add_object(&cfg, argv[2]);
     }
     else if (strcmp(argv[1], "show") == 0) {
        if (argc == 2) {
@@ -1539,7 +1789,6 @@ int main(int argc, char *argv[]) {
     }
     else if (strcmp(argv[1], "add") == 0 && argc >= 3) {
         char *text = read_stdin();
-    
         if (text) {
             // Text from stdin
             add_item(&cfg, argv[2], text);
@@ -1553,10 +1802,84 @@ int main(int argc, char *argv[]) {
                 if (i < argc - 1) strcat(text_buf, " ");
             }
             add_item(&cfg, argv[2], text_buf);
-    }
-    else {
-        printf("Usage: funknotes add <object> <text> OR echo \"text\" | funknotes add <object>\n");
-    }
+        }
+        else {
+            // Enter object shell mode for adding items interactively
+            int primary, counter;
+            load_config_data(&cfg, &primary, &counter);
+            if (primary < 0) {
+                printf("No primary project set. Use 'funknotes primary <project>' first.\n");
+                return 1;
+            }
+            char project_file[MAX_PATH];
+            if (!get_project_file(&cfg, primary, project_file)) {
+                printf("Primary project not found\n");
+                return 1;
+            }
+            FILE *f = fopen(project_file, "r");
+            if (!f) return 1;
+            fseek(f, 0, SEEK_END);
+            long size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            char *content = malloc(size + 1);
+            fread(content, 1, size, f);
+            content[size] = '\0';
+            fclose(f);
+            struct json_object *root = json_tokener_parse(content);
+            free(content);
+            if (!root) return 1;
+            struct json_object *objects, *obj;
+            json_object_object_get_ex(root, "objects", &objects);
+            if (!json_object_object_get_ex(objects, argv[2], &obj)) {
+                printf("Object '%s' not found. Creating it...\n", argv[2]);
+                json_object_put(root);
+                add_object(&cfg, argv[2]);
+                // Re-load project file and objects
+                FILE *f2 = fopen(project_file, "r");
+                if (!f2) return 1;
+                fseek(f2, 0, SEEK_END);
+                long size2 = ftell(f2);
+                fseek(f2, 0, SEEK_SET);
+                char *content2 = malloc(size2 + 1);
+                fread(content2, 1, size2, f2);
+                content2[size2] = '\0';
+                fclose(f2);
+                struct json_object *root2 = json_tokener_parse(content2);
+                free(content2);
+                if (!root2) return 1;
+                json_object_object_get_ex(root2, "objects", &objects);
+                json_object_object_get_ex(objects, argv[2], &obj);
+                json_object_put(root2);
+            } else {
+                json_object_put(root);
+            }
+            // Show items in object
+            show(&cfg, argv[2]);
+            printf("\nEnter text to add to '%s'. Type 'q', 'quit', 'exit', or Ctrl+C to leave.\n", argv[2]);
+            char line[2048];
+            while (1) {
+                printf("%s> ", argv[2]);
+                fflush(stdout);
+                if (!fgets(line, sizeof(line), stdin)) {
+                    printf("\nExiting object shell.\n");
+                    break;
+                }
+                char *cmd = line;
+                while (*cmd == ' ' || *cmd == '\t') cmd++;
+                size_t len = strlen(cmd);
+                while (len > 0 && (cmd[len-1] == '\n' || cmd[len-1] == ' ' || cmd[len-1] == '\t')) cmd[--len] = 0;
+                if (len == 0) continue;
+                if (!strcasecmp(cmd, "clear")) {
+                    printf("\033[2J\033[H");
+                    continue;
+                }
+                if (!strcasecmp(cmd, "q") || !strcasecmp(cmd, "quit") || !strcasecmp(cmd, "exit") || !strcasecmp(cmd, "drop")) {
+                    printf("Exiting object shell.\n");
+                    break;
+                }
+                add_item(&cfg, argv[2], cmd);
+            }
+        }
     }
     else if (strcmp(argv[1], "search") == 0 && argc >= 3) {
         // Determine whether first token is an object name in the primary project
@@ -1643,16 +1966,11 @@ int main(int argc, char *argv[]) {
         list_projects(&cfg);
     }
     else if (strcmp(argv[1], "delete") == 0) {
-        // Support:
-        //   funknotes delete project <name|index>
-        //   funknotes delete projects <proj1,proj2,...>
-        //   funknotes delete object <name>
-        //   funknotes delete <object> <index>   (delete specific item from object)
+        // Enhanced: if argc == 3 and argv[2] is not a keyword, prompt for delete mode
         if (argc == 4) {
             if (strcmp(argv[2], "project") == 0) {
                 delete_project(&cfg, argv[3]);
             } else if (strcmp(argv[2], "projects") == 0) {
-                // split comma-separated idents in argv[3]
                 char *s = strdup(argv[3]);
                 if (!s) { show_usage(argv[0]); }
                 else {
@@ -1666,8 +1984,6 @@ int main(int argc, char *argv[]) {
             } else if (strcmp(argv[2], "object") == 0) {
                 delete_object(&cfg, argv[3]);
             } else {
-                // If argv[2] is not a keyword, treat as: delete <object> <index>
-                // Support single index or comma/range list like "1,3,5-7"
                 if (strchr(argv[3], ',') || strchr(argv[3], '-')) {
                     delete_items_from_object(&cfg, argv[2], argv[3]);
                 } else {
@@ -1678,6 +1994,121 @@ int main(int argc, char *argv[]) {
                         delete_item_from_object(&cfg, argv[2], idx);
                     }
                 }
+            }
+        } else if (argc == 3) {
+            // Prompt: 1. delete entire object, 2. delete item in object
+            printf("Delete '%s':\n  1. delete entire object\n  2. delete item in object\nSelect (1/2): ", argv[2]);
+            fflush(stdout);
+            char resp[8];
+            if (!fgets(resp, sizeof(resp), stdin)) {
+                printf("Aborted.\n");
+                return 1;
+            }
+            int sel = atoi(resp);
+            if (sel == 1) {
+                delete_object(&cfg, argv[2]);
+            } else if (sel == 2) {
+                // Enter object shell for deletion
+                int primary, counter;
+                load_config_data(&cfg, &primary, &counter);
+                if (primary < 0) {
+                    printf("No primary project set. Use 'funknotes primary <project>' first.\n");
+                    return 1;
+                }
+                char project_file[MAX_PATH];
+                if (!get_project_file(&cfg, primary, project_file)) {
+                    printf("Primary project not found\n");
+                    return 1;
+                }
+                FILE *f = fopen(project_file, "r");
+                if (!f) return 1;
+                fseek(f, 0, SEEK_END);
+                long size = ftell(f);
+                fseek(f, 0, SEEK_SET);
+                char *content = malloc(size + 1);
+                fread(content, 1, size, f);
+                content[size] = '\0';
+                fclose(f);
+                struct json_object *root = json_tokener_parse(content);
+                free(content);
+                if (!root) return 1;
+                struct json_object *objects, *obj;
+                json_object_object_get_ex(root, "objects", &objects);
+                if (!json_object_object_get_ex(objects, argv[2], &obj)) {
+                    printf("Object '%s' not found\n", argv[2]);
+                    json_object_put(root);
+                    return 1;
+                }
+                struct json_object *items;
+                json_object_object_get_ex(obj, "items", &items);
+                int item_count = json_object_array_length(items);
+                printf("\n=== %s ===\n", argv[2]);
+                for (int i = 0; i < item_count; i++) {
+                    struct json_object *item = json_object_array_get_idx(items, i);
+                    struct json_object *timestamp, *text;
+                    json_object_object_get_ex(item, "timestamp", &timestamp);
+                    json_object_object_get_ex(item, "text", &text);
+                    printf("%d. [%s] %s\n", i + 1,
+                           json_object_get_string(timestamp),
+                           json_object_get_string(text));
+                }
+                json_object_put(root);
+                printf("\nType 'delete <index>' or 'delete <range>' (e.g. 'delete 2', 'delete 2-5'), or 'q', 'quit', 'exit', 'drop' to leave.\n");
+                char line[2048];
+                while (1) {
+                    printf("%s(delete)> ", argv[2]);
+                    fflush(stdout);
+                    if (!fgets(line, sizeof(line), stdin)) {
+                        printf("\nExiting object delete shell.\n");
+                        break;
+                    }
+                    char *cmd = line;
+                    while (*cmd == ' ' || *cmd == '\t') cmd++;
+                    size_t len = strlen(cmd);
+                    while (len > 0 && (cmd[len-1] == '\n' || cmd[len-1] == ' ' || cmd[len-1] == '\t')) cmd[--len] = 0;
+                    if (len == 0) continue;
+                    if (!strcasecmp(cmd, "clear")) {
+                        printf("\033[2J\033[H");
+                        continue;
+                    }
+                    if (!strcasecmp(cmd, "q") || !strcasecmp(cmd, "quit") || !strcasecmp(cmd, "exit") || !strcasecmp(cmd, "drop")) {
+                        printf("Exiting object delete shell.\n");
+                        break;
+                    }
+                    // Accept: delete <index>, delete <range>, <index>, <range>
+                    char *tok = strtok(cmd, " ");
+                    if (tok && strcasecmp(tok, "delete") == 0) {
+                        char *arg = strtok(NULL, " ");
+                        if (!arg) {
+                            printf("Usage: delete <index> or delete <range>\n");
+                            continue;
+                        }
+                        if (strchr(arg, ',') || strchr(arg, '-')) {
+                            delete_items_from_object(&cfg, argv[2], arg);
+                        } else {
+                            int idx = atoi(arg);
+                            if (idx <= 0) {
+                                printf("Invalid item index '%s'\n", arg);
+                            } else {
+                                delete_item_from_object(&cfg, argv[2], idx);
+                            }
+                        }
+                    } else if (tok) {
+                        // If input is just a number or range
+                        if (strchr(tok, ',') || strchr(tok, '-')) {
+                            delete_items_from_object(&cfg, argv[2], tok);
+                        } else {
+                            int idx = atoi(tok);
+                            if (idx <= 0) {
+                                printf("Invalid item index '%s'\n", tok);
+                            } else {
+                                delete_item_from_object(&cfg, argv[2], idx);
+                            }
+                        }
+                    }
+                }
+            } else {
+                printf("Aborted.\n");
             }
         } else {
             show_usage(argv[0]);
