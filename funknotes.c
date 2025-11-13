@@ -630,15 +630,16 @@ void delete_project(Config *cfg, const char *ident) {
         return;
     }
 
-    // Remove the file
+    // Confirm before removing the file
+    printf("Delete project '%s' (index %d)? y/N: ", ident, proj_idx);
+    fflush(stdout);
+    char resp[8];
+    if (!fgets(resp, sizeof(resp), stdin) || (resp[0] != 'y' && resp[0] != 'Y')) {
+        printf("Deletion cancelled\n");
+        return;
+    }
+    // Remove the file only if confirmed
     if (remove(project_file) == 0) {
-        printf("Delete project '%s' (index %d)? y/N: ", ident, proj_idx);
-        fflush(stdout);
-        char resp[8];
-        if (!fgets(resp, sizeof(resp), stdin) || (resp[0] != 'y' && resp[0] != 'Y')) {
-            printf("Deletion cancelled\n");
-            return;
-        }
         printf("Deleted project '%s' (index %d)\n", ident, proj_idx);
 
         // If deleted project was primary, unset primary
@@ -1527,23 +1528,35 @@ void list_projects(Config *cfg) {
 
 /* Show usage */
 void show_usage(const char *prog) {
-    printf("FunkNotes - Git-like note taking\n\n");
+    printf("FunkNotes - Command-line note taking\n\n");
     printf("Usage:\n");
-    printf("  %s shell                          Enter interactive shell mode (type funknotes commands, exit with 'q', 'quit', 'exit', 'drop', or Ctrl+C)\n", prog);
-    printf("  %s new project <name>             Create a new project\n", prog);
-    printf("  %s primary <name|index>           Set primary project by name or index\n", prog);
-    printf("  %s new <name>                     Create a new object\n", prog);
-    printf("  %s add <object> <text>            Add item to an object\n", prog);
-    printf("  %s projects                       List all projects\n", prog);
-    printf("  %s show                           Show objects in primary\n", prog);
-    printf("  %s show <project> <object>        Show items of an object in a specific project\n", prog);
+    printf("\nProject Commands:\n");
+    printf("  %s new project <name>         Create a new project\n", prog);
+    printf("  %s primary <name|index>       Set primary project\n", prog);
+    printf("  %s projects                   List all projects\n", prog);
+    printf("\nObject Commands:\n");
+    printf("  %s new <name>                 Create a new object in primary\n", prog);
+    printf("  %s open <object>              Enter object shell mode for <object>\n", prog);
+    printf("\nItem Commands:\n");
+    printf("  %s add <object> <text>        Add item to an object\n", prog);
+    printf("  %s add <object>               Enter object shell mode for <object>\n", prog);
+    printf("\nShow & Search:\n");
+    printf("  %s show                       List objects in primary project\n", prog);
+    printf("  %s show <project>             List objects in specified project\n", prog);
+    printf("  %s show <project> <object>    Show items in an object\n", prog);
     printf("  %s search [<object>] <keywords...>  Search notes (case-insensitive, all keywords must match)\n", prog);
-    printf("  %s merge projects <proj1,proj2,...,target>   Merge multiple projects into target (last)\n", prog);
-    printf("  %s merge <project> <obj1,obj2,target>  Merge objects within a project\n", prog);
-    printf("  %s delete project <name|index>  Delete a project by name or index\n", prog);
-    printf("  %s delete projects <proj1,proj2,...>  Delete multiple projects by name or index\n", prog);
-    printf("  %s delete object <name>    Delete an object from the primary project\n", prog);
-    printf("  %s delete <object> <index>  Delete a specific item (1-based) from an object in the primary project\n", prog);
+    printf("\nMerge & Delete:\n");
+    printf("  %s merge projects <proj1,proj2,...,target>   Merge multiple projects into target\n", prog);
+    printf("  %s merge <project> <obj1,obj2,target>       Merge objects within a project\n", prog);
+    printf("  %s delete project <name|index>              Delete a project\n", prog);
+    printf("  %s delete projects <proj1,proj2,...>        Delete multiple projects\n", prog);
+    printf("  %s delete object <name>                    Delete an object from primary\n", prog);
+    printf("  %s delete <object> <index>                  Delete item(s) from object (1-based, supports ranges)\n", prog);
+    printf("\nShell & Interactive:\n");
+    printf("  %s shell                       Enter interactive shell mode (REPL)\n", prog);
+    printf("    In shell/object shell: exit with 'q', 'quit', 'exit', 'drop', or Ctrl+C.\n");
+    printf("    In object shell: type 'delete' to enter delete mode, 'show' to refresh, 'clear' to clear screen.\n");
+    printf("\nFor advanced commands and details, see README.md.\n");
 }
 
 int main(int argc, char *argv[]) {
