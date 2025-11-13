@@ -1,6 +1,6 @@
 # funknotes
-FunkNotes is a tiny command-line note-taking tool written in C. It stores data as JSON files under
-`$HOME/.funknotes/projects/` and keeps a small `config.json` for the primary project and a project counter. FunkNotes (From the idea of function based notes - originally I made this in vba as class oriented notes so you could do funk.new(proj) etc).
+FunkNotes is a tiny command-line note-taking tool written in C. It stores data as plain text files under
+`$HOME/.funknotes/projects/` and keeps a small `config.txt` for the primary project and a project counter. FunkNotes (From the idea of function based notes - originally I made this in vba as class oriented notes so you could do funk.new(proj) etc).
 
 Funknotes is project-centric - that is, the application is developed with the idea that you'll mainly be working in one project, not switching between a heap. This means a lot of the efficiency I was aiming for is to make dealing with your one project quick. All parts of the project are generic "Objects" so you can name them however you like - some examples, BUGS, TODOS, PLANS etc.
 
@@ -8,7 +8,7 @@ This README summarizes current features, recent changes, and common commands.
 
 Notes
 - Initial prototype was produced with AI-assisted iterative development.
-- Intended to run on Unix-like systems (macOS, Linux). Build requires libjson-c.
+- Intended to run on Unix-like systems (macOS, Linux). Build requires only gcc (no external dependencies).
 - You may want to symlink the compiled binary into `/usr/local/bin` for convenience.
 
 Latest changes (2025/11/08)
@@ -38,18 +38,17 @@ Latest changes (2025/11/07)
 - Search: added a case-insensitive substring search that accepts multiple keywords (AND semantics) and can be scoped to an object: `funknotes search [<object>] <keywords...>`.
 
 Quick build
-You need gcc and libjson-c development headers installed. Example on macOS (Homebrew):
+You need gcc installed. Example on macOS:
 
 ```bash
-brew install json-c
-gcc -o funknotes funknotes.c -ljson-c
+gcc -o funknotes funknotes.c
 ```
 
 
 Commands / Usage (high level)
 
 - Create a new project
-	- funknotes new <name>
+	- funknotes new project <name>
 - Set primary project (by name or index)
 	- funknotes primary <name|index>
 - Create an object in the primary project
@@ -99,11 +98,11 @@ Examples
 
 ```bash
 # create and set project
-funknotes new Cafe_GUI
+funknotes new project Cafe_GUI
 funknotes primary Cafe_GUI
 
 # add and auto-create object
-funknotes add TODO "Implement JSON for buttons"
+funknotes add TODO "Implement button functionality"
 
 # show objects
 funknotes show
